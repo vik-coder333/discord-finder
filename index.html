@@ -572,6 +572,18 @@ async function startCheckout(tier){
 /* API / mode */
 async function loadRemote(){ const res=await fetch("/api/servers"); if(!res.ok) throw new Error("no api"); remoteServers=await res.json(); }
 function setMode(live){ API_MODE=live; const pill=$("#modePill"); if(live){ pill.classList.add("live"); $("#modeText").textContent="Live"; } else { $("#modeText").textContent="Offline"; } }
+
+/* Auto-refresh: in Live mode, quietly pull everyone's latest data every 20s so
+   new servers/bumps from other people appear without a manual reload. */
+let pollTimer = null;
+function startAutoRefresh(){
+  if (pollTimer || !API_MODE) return;
+  pollTimer = setInterval(async () => {
+    if (document.hidden) return;                 // skip when tab is in background
+    if (document.querySelector(".overlay.open")) return; // don't disrupt an open modal
+    try { await loadRemote(); render(); } catch {}
+  }, 20000);
+}
 (async function init(){
   try{
     const ctrl=new AbortController(); const t=setTimeout(()=>ctrl.abort(),1500);
@@ -579,6 +591,7 @@ function setMode(live){ API_MODE=live; const pill=$("#modePill"); if(live){ pill
     if(res.ok){
       await loadRemote(); setMode(true);
       try{ const cfg = await (await fetch("/api/config")).json(); PAYMENTS = !!cfg.payments; TIERS = cfg.tiers||[]; }catch{}
+      startAutoRefresh();
     } else setMode(false);
   }catch{ setMode(false); }
   render();
