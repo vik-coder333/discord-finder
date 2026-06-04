@@ -1,0 +1,20 @@
+# Secrets — never commit these
+.env
+server/.env
+*.env.local
+
+# Database files
+*.db
+*.db-wal
+*.db-shm
+server/servers.db
+server/servers.db-wal
+server/servers.db-shm
+
+# Dependencies
+node_modules/
+server/node_modules/
+
+# OS / editor junk
+.DS_Store
+Thumbs.db

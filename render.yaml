@@ -1,0 +1,30 @@
+# One-click deploy blueprint for Render.com
+# 1. Push this "discord-finder" folder to a GitHub repo.
+# 2. On Render: New → Blueprint → pick the repo. Render reads this file.
+# 3. Add your secrets (STRIPE_SECRET_KEY, ADMIN_KEY, etc.) in the dashboard.
+services:
+  - type: web
+    name: discoverdisc
+    runtime: node
+    rootDir: server
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    # Persistent disk mounted at /var/data so the SQLite database survives
+    # restarts and redeploys. DB_PATH (below) points the app at it.
+    disk:
+      name: data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: DB_PATH
+        value: /var/data/servers.db
+      # Set these in the Render dashboard (mark as secret). Blank here on purpose.
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: ADMIN_KEY
+        sync: false

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Admin — DiscoverDisc</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#0c0d11;--panel:#14151b;--card:#181a21;--line:#262932;--text:#e9eaf0;--dim:#9ea3b2;--accent:#7c5cff;--red:#ef4444;--gold:#f0b232;--green:#3ba55d;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Inter",sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:30px 18px;}
+  .wrap{max-width:920px;margin:0 auto;}
+  h1{font-family:"Space Grotesk";font-size:24px;margin-bottom:4px;display:flex;align-items:center;gap:10px}
+  .sub{color:var(--dim);font-size:14px;margin-bottom:22px}
+  .gate{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px;max-width:420px;}
+  .gate label{font-size:12px;font-weight:700;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:8px}
+  input{width:100%;background:var(--card);border:1px solid var(--line);color:var(--text);padding:12px;border-radius:10px;font:inherit;outline:none}
+  input:focus{border-color:var(--accent)}
+  button{font:inherit;font-weight:600;border:none;border-radius:10px;cursor:pointer;transition:.14s}
+  .btn-go{margin-top:14px;background:linear-gradient(135deg,var(--accent),#5865f2);color:#fff;padding:12px 18px;width:100%}
+  .row{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px}
+  .ic{width:40px;height:40px;border-radius:11px;display:grid;place-items:center;font-weight:700;color:#fff;flex:none;font-family:"Space Grotesk"}
+  .info{flex:1;min-width:0}
+  .nm{font-weight:600;display:flex;align-items:center;gap:8px}
+  .badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;background:rgba(240,178,50,.18);color:var(--gold)}
+  .meta{font-size:12px;color:var(--dim);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .acts{display:flex;gap:6px;flex:none}
+  .feat{background:rgba(240,178,50,.15);color:var(--gold);padding:8px 12px}
+  .del{background:rgba(239,68,68,.15);color:var(--red);padding:8px 12px}
+  .err{color:var(--red);font-size:13px;margin-top:10px}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🛡️ Admin</h1>
+  <div class="sub">Moderate the directory — feature or remove any server.</div>
+
+  <div class="gate" id="gate">
+    <label>Admin key</label>
+    <input id="key" type="password" placeholder="Paste your ADMIN_KEY" autocomplete="off" />
+    <button class="btn-go" id="go">Unlock</button>
+    <div class="err hidden" id="err"></div>
+  </div>
+
+  <div id="list" class="hidden"></div>
+</div>
+<script>
+  const $ = (s)=>document.querySelector(s);
+  let KEY = "";
+  const headers = ()=>({ "x-admin-key": KEY, "Content-Type":"application/json" });
+  const esc = (s)=>String(s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
+  const fmt = (n)=>{n=n||0;return n>=1e6?(n/1e6).toFixed(1).replace(".0","")+"M":n>=1e3?Math.round(n/1e3)+"K":n;};
+
+  async function load() {
+    const res = await fetch("/api/servers");
+    const data = await res.json();
+    const now = Date.now();
+    $("#list").innerHTML = data.length ? data.map(s=>{
+      const id = s.id.replace("api:","");
+      const feat = s.featuredUntil > now;
+      return `<div class="row" data-id="${id}">
+        <div class="ic" style="background:${esc(s.color)}">${esc((s.name||'?').slice(0,2).toUpperCase())}</div>
+        <div class="info">
+          <div class="nm">${esc(s.name)} ${feat?'<span class="badge">FEATURED</span>':''}</div>
+          <div class="meta">${esc(s.cat)} · 🔥 ${fmt(s.bumps)} bumps · ${esc(s.invite)}</div>
+        </div>
+        <div class="acts">
+          <button class="feat" data-feat="${id}">★ Feature 7d</button>
+          <button class="del" data-del="${id}">Delete</button>
+        </div>
+      </div>`;
+    }).join("") : '<div class="sub">No servers yet.</div>';
+
+    $("#list").querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{
+      if(!confirm("Delete this server?")) return;
+      const r = await fetch("/api/servers/"+b.dataset.del,{method:"DELETE",headers:headers()});
+      if(r.ok) load(); else alert((await r.json()).error||"Failed");
+    });
+    $("#list").querySelectorAll("[data-feat]").forEach(b=>b.onclick=async()=>{
+      const r = await fetch("/api/admin/servers/"+b.dataset.feat+"/feature",{method:"POST",headers:headers(),body:JSON.stringify({days:7})});
+      if(r.ok) load(); else alert((await r.json()).error||"Failed");
+    });
+  }
+
+  $("#go").onclick = async()=>{
+    KEY = $("#key").value.trim();
+    if(!KEY) return;
+    // Validate by attempting an admin-only action probe via feature on non-existent id (expect 404, not 401/503)
+    const probe = await fetch("/api/admin/servers/0/feature",{method:"POST",headers:headers(),body:JSON.stringify({days:1})});
+    if(probe.status===401 || probe.status===503){
+      const e=$("#err"); e.classList.remove("hidden"); e.textContent = probe.status===503 ? "Admin isn't configured on the server (set ADMIN_KEY)." : "Invalid admin key.";
+      return;
+    }
+    $("#gate").classList.add("hidden"); $("#list").classList.remove("hidden"); load();
+  };
+  $("#key").addEventListener("keydown", e=>{ if(e.key==="Enter") $("#go").click(); });
+</script>
+</body>
+</html>

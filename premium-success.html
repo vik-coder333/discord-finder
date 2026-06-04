@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Payment — DiscoverDisc</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  body { margin:0; min-height:100vh; display:grid; place-items:center; font-family:"Inter",sans-serif;
+    background: radial-gradient(800px 500px at 50% -10%, rgba(124,92,255,0.25), transparent 70%), #0c0d11; color:#e9eaf0; }
+  .box { background:#14151b; border:1px solid #262932; border-radius:20px; padding:40px; max-width:420px; text-align:center; box-shadow:0 30px 70px -20px rgba(0,0,0,.6); }
+  .emoji { font-size:54px; }
+  h1 { font-family:"Space Grotesk"; font-size:24px; margin:14px 0 6px; }
+  p { color:#9ea3b2; font-size:14.5px; line-height:1.6; }
+  .spin { width:34px;height:34px;border:3px solid #262932;border-top-color:#7c5cff;border-radius:50%;animation:s 1s linear infinite;margin:6px auto;}
+  @keyframes s{to{transform:rotate(360deg)}}
+  a.btn { display:inline-block; margin-top:22px; background:linear-gradient(135deg,#7c5cff,#5865f2); color:#fff;
+    text-decoration:none; font-weight:600; padding:12px 22px; border-radius:12px; }
+</style>
+</head>
+<body>
+  <div class="box" id="box">
+    <div class="spin"></div>
+    <h1>Confirming your payment…</h1>
+    <p>One moment while we activate your featured listing.</p>
+  </div>
+<script>
+  const box = document.getElementById("box");
+  const sid = new URLSearchParams(location.search).get("session_id");
+  function show(emoji, title, msg) {
+    box.innerHTML = `<div class="emoji">${emoji}</div><h1>${title}</h1><p>${msg}</p><a class="btn" href="/">Back to DiscoverDisc</a>`;
+  }
+  (async () => {
+    if (!sid) return show("🤔", "Hmm…", "No payment session was found.");
+    try {
+      const res = await fetch("/api/checkout/confirm?session_id=" + encodeURIComponent(sid));
+      const j = await res.json();
+      if (res.ok && j.ok) show("🎉", "You're featured!", "Your server is now pinned to the top of DiscoverDisc. Thanks for the support!");
+      else show("⌛", "Payment pending", "We couldn't confirm the payment yet. If you were charged, it'll activate shortly.");
+    } catch {
+      show("⚠️", "Something went wrong", "We couldn't reach the server to confirm. Please refresh.");
+    }
+  })();
+</script>
+</body>
+</html>
