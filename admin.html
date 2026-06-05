@@ -53,8 +53,9 @@
   const fmt = (n)=>{n=n||0;return n>=1e6?(n/1e6).toFixed(1).replace(".0","")+"M":n>=1e3?Math.round(n/1e3)+"K":n;};
 
   async function load() {
-    const res = await fetch("/api/servers");
-    const data = await res.json();
+    let data = [];
+    try { const res = await fetch("/api/servers"); data = await res.json(); }
+    catch { $("#list").innerHTML = '<div class="sub">Couldn\'t load servers — the free server may be waking up. Refresh in a moment.</div>'; return; }
     const now = Date.now();
     $("#list").innerHTML = data.length ? data.map(s=>{
       const id = s.id.replace("api:","");
@@ -83,15 +84,27 @@
     });
   }
 
+  function showErr(msg){ const e=$("#err"); e.classList.remove("hidden"); e.textContent = msg; }
   $("#go").onclick = async()=>{
     KEY = $("#key").value.trim();
-    if(!KEY) return;
-    // Validate by attempting an admin-only action probe via feature on non-existent id (expect 404, not 401/503)
-    const probe = await fetch("/api/admin/servers/0/feature",{method:"POST",headers:headers(),body:JSON.stringify({days:1})});
-    if(probe.status===401 || probe.status===503){
-      const e=$("#err"); e.classList.remove("hidden"); e.textContent = probe.status===503 ? "Admin isn't configured on the server (set ADMIN_KEY)." : "Invalid admin key.";
-      return;
+    $("#err").classList.add("hidden");
+    if(!KEY){ showErr("Please paste your admin key."); return; }
+    const btn = $("#go"); const orig = btn.textContent; btn.textContent = "Checking…"; btn.disabled = true;
+    // Retry a few times in case the free server is waking up (cold start).
+    let validated = false, lastMsg = "";
+    for(let i=0; i<6 && !validated; i++){
+      try{
+        const res = await fetch("/api/admin/check",{ headers: headers(), cache:"no-store" });
+        if(res.ok){ validated = true; break; }
+        if(res.status===401){ lastMsg = "Invalid admin key. Double-check for extra spaces."; break; }
+        if(res.status===503){ lastMsg = "Admin isn't configured on the server (ADMIN_KEY not set)."; break; }
+        lastMsg = "Server is waking up… retrying"; // 404/5xx during cold start
+      }catch{ lastMsg = "Can't reach the server… retrying"; }
+      btn.textContent = "Waking server…";
+      await new Promise(r=>setTimeout(r, 3000));
     }
+    btn.textContent = orig; btn.disabled = false;
+    if(!validated){ showErr(lastMsg || "Couldn't verify. Try again."); return; }
     $("#gate").classList.add("hidden"); $("#list").classList.remove("hidden"); load();
   };
   $("#key").addEventListener("keydown", e=>{ if(e.key==="Enter") $("#go").click(); });

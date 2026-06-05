@@ -438,6 +438,9 @@ function requireAdmin(req, res, next) {
   if (req.headers["x-admin-key"] !== ADMIN_KEY) return res.status(401).json({ error: "Invalid admin key." });
   next();
 }
+// Lightweight check so the admin page can validate the key cleanly.
+app.get("/api/admin/check", requireAdmin, (_req, res) => res.json({ ok: true }));
+
 // Comp a server as featured without payment (moderation / promos).
 app.post("/api/admin/servers/:id/feature", requireAdmin, (req, res) => {
   const id = parseInt(req.params.id, 10);
