@@ -10,6 +10,10 @@ import { dirname, join } from "path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 4000;
+
+// Safety net: never let a stray async error crash the whole server process.
+process.on("unhandledRejection", (e) => console.error("[unhandledRejection]", e));
+process.on("uncaughtException", (e) => console.error("[uncaughtException]", e));
 const ADMIN_KEY = process.env.ADMIN_KEY || "";
 
 // Stripe is optional — the site works fully without it; premium just turns off.

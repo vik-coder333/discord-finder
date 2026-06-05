@@ -584,16 +584,30 @@ function startAutoRefresh(){
     try { await loadRemote(); render(); } catch {}
   }, 20000);
 }
+// Try the server several times before deciding we're offline. This rides out
+// free-tier "cold starts" (the server can take ~30-50s to wake) and brief blips,
+// so visitors land in Live mode instead of seeing "Offline".
+async function checkHealth(){
+  for(let i=0;i<7;i++){
+    try{
+      const ctrl=new AbortController(); const t=setTimeout(()=>ctrl.abort(),9000);
+      const res=await fetch("/api/health",{cache:"no-store",signal:ctrl.signal}); clearTimeout(t);
+      if(res.ok) return true;
+    }catch{}
+    $("#modeText").textContent = i===0 ? "Connecting…" : "Waking up…";
+    await new Promise(r=>setTimeout(r,3000));
+  }
+  return false;
+}
 (async function init(){
-  try{
-    const ctrl=new AbortController(); const t=setTimeout(()=>ctrl.abort(),1500);
-    const res=await fetch("/api/health",{signal:ctrl.signal}); clearTimeout(t);
-    if(res.ok){
-      await loadRemote(); setMode(true);
-      try{ const cfg = await (await fetch("/api/config")).json(); PAYMENTS = !!cfg.payments; TIERS = cfg.tiers||[]; }catch{}
-      startAutoRefresh();
-    } else setMode(false);
-  }catch{ setMode(false); }
+  $("#modeText").textContent = "Connecting…";
+  const live = await checkHealth();
+  if(live){
+    try{ await loadRemote(); }catch{}
+    setMode(true);
+    try{ const cfg = await (await fetch("/api/config")).json(); PAYMENTS = !!cfg.payments; TIERS = cfg.tiers||[]; }catch{}
+    startAutoRefresh();
+  } else setMode(false);
   render();
 })();
 </script>
