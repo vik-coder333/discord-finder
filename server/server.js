@@ -19,6 +19,12 @@ const ADMIN_KEY = process.env.ADMIN_KEY || "";
 // Stripe is optional — the site works fully without it; premium just turns off.
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
+// Discord login is optional too. When configured, logging in is required to add
+// a server. When not configured, the site falls back to anonymous adds.
+const DISCORD = { clientId: process.env.DISCORD_CLIENT_ID || "", clientSecret: process.env.DISCORD_CLIENT_SECRET || "" };
+const discordEnabled = !!(DISCORD.clientId && DISCORD.clientSecret);
+function baseUrl(req) { return process.env.BASE_URL || `${req.protocol}://${req.get("host")}`; }
+
 const COOLDOWN = 2 * 60 * 60 * 1000; // free bump cooldown: 2 hours
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -57,6 +63,13 @@ db.exec(`
     tier       TEXT,
     created    INTEGER
   );
+  CREATE TABLE IF NOT EXISTS sessions (
+    token    TEXT PRIMARY KEY,
+    userId   TEXT,
+    username TEXT,
+    avatar   TEXT,
+    created  INTEGER
+  );
 `);
 
 // Migrations for databases created by earlier versions.
@@ -66,6 +79,7 @@ addCol("bumpedAt", "INTEGER");
 addCol("bumps", "INTEGER DEFAULT 0");
 addCol("featuredUntil", "INTEGER DEFAULT 0");
 addCol("ownerToken", "TEXT");
+addCol("ownerUserId", "TEXT");
 
 const CATEGORIES = ["Gaming","Music","Art & Design","Tech","Anime","Study","Crypto","Community","Sports"];
 
@@ -84,8 +98,29 @@ function rowToServer(r) {
     bumpedAt: r.bumpedAt || r.created,
     bumps: r.bumps || 0,
     featuredUntil: r.featuredUntil || 0,
+    ownerId: r.ownerUserId || null,
     user: true,
   };
+}
+
+/* ---------------- Sessions / Discord auth helpers ---------------- */
+function parseCookies(req) {
+  const out = {};
+  (req.headers.cookie || "").split(";").forEach((p) => {
+    const i = p.indexOf("=");
+    if (i > -1) out[p.slice(0, i).trim()] = decodeURIComponent(p.slice(i + 1).trim());
+  });
+  return out;
+}
+function currentUser(req) {
+  const t = parseCookies(req).dd_session;
+  if (!t) return null;
+  const s = db.prepare("SELECT * FROM sessions WHERE token = ?").get(t);
+  return s ? { id: s.userId, username: s.username, avatar: s.avatar } : null;
+}
+function isSecure(req) { return req.protocol === "https" || req.headers["x-forwarded-proto"] === "https"; }
+function setCookie(res, req, name, value, maxAge) {
+  res.append("Set-Cookie", `${name}=${value}; HttpOnly; Path=/; Max-Age=${maxAge}; SameSite=Lax${isSecure(req) ? "; Secure" : ""}`);
 }
 
 function safeInvite(raw) {
@@ -140,7 +175,7 @@ app.use(
         scriptSrc: ["'self'", "'unsafe-inline'"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
-        imgSrc: ["'self'", "data:"],
+        imgSrc: ["'self'", "data:", "https://cdn.discordapp.com"],
         connectSrc: ["'self'"],
         formAction: ["'self'", "https://checkout.stripe.com"],
         frameAncestors: ["'none'"],
@@ -183,8 +218,66 @@ const writeLimiter = rateLimit({
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
 app.get("/api/config", (_req, res) =>
-  res.json({ payments: !!stripe, tiers: TIERS.map(({ id, label, price, days }) => ({ id, label, price, days })) })
+  res.json({
+    payments: !!stripe,
+    tiers: TIERS.map(({ id, label, price, days }) => ({ id, label, price, days })),
+    discord: discordEnabled,
+    loginRequired: discordEnabled,
+  })
 );
+
+/* ---------------- Discord OAuth ---------------- */
+app.get("/api/auth/me", (req, res) => res.json(currentUser(req)));
+
+app.get("/api/auth/login", (req, res) => {
+  if (!discordEnabled) return res.status(400).send("Discord login isn't set up on this site.");
+  const state = crypto.randomBytes(16).toString("hex");
+  setCookie(res, req, "dd_oauth_state", state, 600);
+  const redirect = encodeURIComponent(baseUrl(req) + "/api/auth/callback");
+  res.redirect(
+    `https://discord.com/api/oauth2/authorize?client_id=${DISCORD.clientId}&redirect_uri=${redirect}&response_type=code&scope=identify&state=${state}`
+  );
+});
+
+app.get("/api/auth/callback", async (req, res) => {
+  if (!discordEnabled) return res.redirect("/");
+  const { code, state } = req.query;
+  if (!code || !state || state !== parseCookies(req).dd_oauth_state) return res.redirect("/?login=failed");
+  try {
+    const body = new URLSearchParams({
+      client_id: DISCORD.clientId,
+      client_secret: DISCORD.clientSecret,
+      grant_type: "authorization_code",
+      code: String(code),
+      redirect_uri: baseUrl(req) + "/api/auth/callback",
+    });
+    const tokRes = await fetch("https://discord.com/api/oauth2/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    });
+    const tok = await tokRes.json();
+    if (!tok.access_token) throw new Error("token exchange failed");
+    const u = await (await fetch("https://discord.com/api/users/@me", { headers: { Authorization: `Bearer ${tok.access_token}` } })).json();
+    if (!u.id) throw new Error("user fetch failed");
+    const token = crypto.randomBytes(24).toString("hex");
+    db.prepare("INSERT INTO sessions (token, userId, username, avatar, created) VALUES (?,?,?,?,?)").run(
+      token, u.id, u.global_name || u.username || "Discord user", u.avatar || "", Date.now()
+    );
+    setCookie(res, req, "dd_session", token, 60 * 60 * 24 * 30);
+    res.redirect("/");
+  } catch (e) {
+    console.error("[auth]", e);
+    res.redirect("/?login=failed");
+  }
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  const t = parseCookies(req).dd_session;
+  if (t) db.prepare("DELETE FROM sessions WHERE token = ?").run(t);
+  res.append("Set-Cookie", `dd_session=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax`);
+  res.json({ ok: true });
+});
 
 app.get("/api/servers", (_req, res) => {
   const rows = db.prepare("SELECT * FROM servers ORDER BY created DESC LIMIT 2000").all();
@@ -192,6 +285,8 @@ app.get("/api/servers", (_req, res) => {
 });
 
 app.post("/api/servers", writeLimiter, (req, res) => {
+  const user = currentUser(req);
+  if (discordEnabled && !user) return res.status(401).json({ error: "Please log in with Discord to add a server." });
   const b = req.body || {};
   const f = sanitizeFields(b);
   if (!f.name || f.name.length < 2) return res.status(400).json({ error: "Please enter a valid server name." });
@@ -205,10 +300,10 @@ app.post("/api/servers", writeLimiter, (req, res) => {
   try {
     const info = db
       .prepare(
-        `INSERT INTO servers (name, invite, desc, cat, tags, color, members, online, created, bumpedAt, bumps, featuredUntil, ownerToken)
-         VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, 0, 0, ?)`
+        `INSERT INTO servers (name, invite, desc, cat, tags, color, members, online, created, bumpedAt, bumps, featuredUntil, ownerToken, ownerUserId)
+         VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, 0, 0, ?, ?)`
       )
-      .run(f.name, invite, f.desc || "", f.cat || "Community", JSON.stringify(f.tags || []), f.color || "#7c5cff", now, now, ownerToken);
+      .run(f.name, invite, f.desc || "", f.cat || "Community", JSON.stringify(f.tags || []), f.color || "#7c5cff", now, now, ownerToken, user ? user.id : null);
     const row = db.prepare("SELECT * FROM servers WHERE id = ?").get(info.lastInsertRowid);
     // ownerToken is returned ONCE here so the adder can manage their listing.
     res.status(201).json({ ...rowToServer(row), ownerToken });
@@ -238,6 +333,8 @@ app.post("/api/servers/:id/bump", writeLimiter, (req, res) => {
 function authLevel(req, row) {
   const adm = req.headers["x-admin-key"];
   if (ADMIN_KEY && adm === ADMIN_KEY) return "admin";
+  const user = currentUser(req);
+  if (user && row.ownerUserId && row.ownerUserId === user.id) return "owner";
   const tok = req.headers["x-owner-token"];
   if (tok && row.ownerToken) {
     const a = Buffer.from(String(tok));
@@ -358,5 +455,5 @@ app.use(express.static(join(__dirname, "..")));
 
 app.listen(PORT, () => {
   console.log(`\n  DiscoverDisc running →  http://localhost:${PORT}`);
-  console.log(`  Payments: ${stripe ? "ENABLED" : "disabled (set STRIPE_SECRET_KEY)"}   Admin: ${ADMIN_KEY ? "enabled" : "disabled (set ADMIN_KEY)"}\n`);
+  console.log(`  Payments: ${stripe ? "ENABLED" : "disabled"}   Admin: ${ADMIN_KEY ? "enabled" : "disabled"}   Discord login: ${discordEnabled ? "ENABLED" : "disabled"}\n`);
 });
