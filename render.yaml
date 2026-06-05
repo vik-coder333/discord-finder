@@ -1,7 +1,12 @@
-# One-click deploy blueprint for Render.com
-# 1. Push this "discord-finder" folder to a GitHub repo.
+# One-click deploy blueprint for Render.com (FREE tier)
+# 1. Push this "discord-finder" folder to a GitHub repo.  ✅ done
 # 2. On Render: New → Blueprint → pick the repo. Render reads this file.
-# 3. Add your secrets (STRIPE_SECRET_KEY, ADMIN_KEY, etc.) in the dashboard.
+# 3. When prompted, paste your secrets (STRIPE_SECRET_KEY, ADMIN_KEY).
+#
+# NOTE: the free plan has no persistent disk, so the SQLite database lives on
+# the container's temporary disk. The site is fully live for everyone, but the
+# list can reset on redeploys/restarts. To make data permanent later, upgrade
+# this service to "Starter" and add a disk (see the commented block at the end).
 services:
   - type: web
     name: discoverdisc
@@ -10,21 +15,21 @@ services:
     plan: free
     buildCommand: npm install
     startCommand: npm start
-    # Persistent disk mounted at /var/data so the SQLite database survives
-    # restarts and redeploys. DB_PATH (below) points the app at it.
-    disk:
-      name: data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: NODE_VERSION
         value: "20"
-      - key: DB_PATH
-        value: /var/data/servers.db
-      # Set these in the Render dashboard (mark as secret). Blank here on purpose.
+      # You'll be asked to enter these when you create the Blueprint.
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
       - key: ADMIN_KEY
         sync: false
+
+# ---- To make data PERMANENT later (paid, ~$7/mo) ----
+# Change `plan: free` to `plan: starter`, then add under the service:
+#   disk:
+#     name: data
+#     mountPath: /var/data
+#     sizeGB: 1
+# and add an env var:  DB_PATH = /var/data/servers.db
