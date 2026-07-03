@@ -9,9 +9,10 @@ need to do at the hosting/domain level.
 |------------|---------------|
 | **Parameterized SQL queries** | SQL injection (attackers reading/wiping your database) |
 | **Strict invite validation** | The directory being used to spread phishing / `javascript:` / malware links. Only real `discord.gg` invites are accepted. |
+| **Invite verification (Discord API)** | Dead or made-up invites — new listings are checked against Discord's public API before being accepted. |
 | **Output escaping (frontend)** | Stored XSS — a malicious server name/description can't run code in visitors' browsers |
 | **Content-Security-Policy** | Injected/external scripts from running on your page |
-| **Rate limiting** | Spam floods — max 15 submissions per 10 min, 120 API calls per min, per visitor |
+| **Rate limiting** | Spam floods — max 25 writes (add/edit/delete/bump/report) per 10 min, 120 API calls per min, per visitor |
 | **Duplicate blocking** | The same server being posted hundreds of times |
 | **Request size limit (8 KB)** | Oversized-payload abuse |
 | **X-Frame-Options / frame-ancestors** | Clickjacking (your site embedded in a scam frame) |
@@ -19,7 +20,9 @@ need to do at the hosting/domain level.
 | **HSTS header** | Forcing browsers to always use HTTPS |
 | **x-powered-by removed** | Hides the server tech from attackers |
 | **Owner tokens (constant-time compare)** | Stops one user editing/deleting another's listing, and resists timing attacks |
-| **Admin key on moderation routes** | Only you can feature/remove servers site-wide |
+| **Session expiry (30 days)** | Stale Discord-login sessions can't be replayed forever; expired ones are pruned from the database |
+| **Admin key on moderation routes** | Only you can feature/remove servers site-wide or view visitor reports |
+| **Report system** | Visitors can flag scam/spam listings for your review in the admin panel instead of them lingering unnoticed |
 | **Stripe Checkout (off-site)** | Card data never touches your server — Stripe handles it, keeping you out of PCI scope |
 | **Server-side payment verification + webhook signatures** | A "featured" upgrade can't be faked from the browser; webhook events are signature-checked |
 
@@ -47,15 +50,15 @@ need to do at the hosting/domain level.
    `.env` to GitHub or paste keys into chats/screenshots. If a key leaks, roll it
    in the Stripe dashboard immediately.
 
-5. **Back up the database** — copy `server/servers.db` somewhere safe
+6. **Back up the database** — copy `server/servers.db` somewhere safe
    periodically (or use a host with managed backups) so you don't lose the list.
 
 ## Notes / honest limits
 - This is hardened for a normal public community directory. It is **not**
-  storing passwords, payments, or personal data — which keeps the risk surface
-  small.
-- There's no admin login yet because there are no destructive actions exposed
-  (no public delete/edit). If you later add moderation (delete/edit servers),
-  that endpoint **must** be put behind authentication — ask and I'll add it.
+  storing passwords or card data — which keeps the risk surface small. The only
+  personal data kept is the Discord id/username of people who log in.
+- All destructive actions are authenticated: owners can only touch their own
+  listing (owner token or Discord login), and site-wide moderation (delete,
+  feature, reports) requires the `ADMIN_KEY`.
 - No software is "100% unhackable." Layers + keeping things updated + account
   2FA is what real-world security looks like.

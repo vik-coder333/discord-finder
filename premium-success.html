@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Payment — DiscoverDisc</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%237c5cff'/%3E%3Cstop offset='1' stop-color='%235865f2'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='15' fill='url(%23g)'/%3E%3Ccircle cx='23' cy='32' r='7' fill='white'/%3E%3Ccircle cx='41' cy='32' r='7' fill='white'/%3E%3C/svg%3E" />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   body { margin:0; min-height:100vh; display:grid; place-items:center; font-family:"Inter",sans-serif;
@@ -32,14 +33,16 @@
   }
   (async () => {
     if (!sid) return show("🤔", "Hmm…", "No payment session was found.");
-    try {
-      const res = await fetch("/api/checkout/confirm?session_id=" + encodeURIComponent(sid));
-      const j = await res.json();
-      if (res.ok && j.ok) show("🎉", "You're featured!", "Your server is now pinned to the top of DiscoverDisc. Thanks for the support!");
-      else show("⌛", "Payment pending", "We couldn't confirm the payment yet. If you were charged, it'll activate shortly.");
-    } catch {
-      show("⚠️", "Something went wrong", "We couldn't reach the server to confirm. Please refresh.");
+    // Retry a few times so a free-tier cold start doesn't show a false "pending".
+    for (let i = 0; i < 4; i++) {
+      try {
+        const res = await fetch("/api/checkout/confirm?session_id=" + encodeURIComponent(sid));
+        const j = await res.json();
+        if (res.ok && j.ok) return show("🎉", "You're featured!", "Your server is now pinned to the top of DiscoverDisc. Thanks for the support!");
+      } catch {}
+      await new Promise((r) => setTimeout(r, 2500));
     }
+    show("⌛", "Payment pending", "We couldn't confirm the payment yet. If you were charged, it'll activate within a few minutes — no need to pay again.");
   })();
 </script>
 </body>

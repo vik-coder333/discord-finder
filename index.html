@@ -4,6 +4,14 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>DiscoverDisc — Find Public Discord Servers</title>
+<meta name="description" content="DiscoverDisc — browse public Discord communities by category, bump your server to the top every 2 hours, or feature it for maximum visibility." />
+<meta name="theme-color" content="#0c0d11" />
+<meta property="og:title" content="DiscoverDisc — Find Public Discord Servers" />
+<meta property="og:description" content="Browse public Discord communities by category, bump your server to the top every 2 hours, or feature it for maximum visibility." />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="DiscoverDisc" />
+<meta name="twitter:card" content="summary" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%237c5cff'/%3E%3Cstop offset='1' stop-color='%235865f2'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='15' fill='url(%23g)'/%3E%3Ccircle cx='23' cy='32' r='7' fill='white'/%3E%3Ccircle cx='41' cy='32' r='7' fill='white'/%3E%3C/svg%3E" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -116,7 +124,8 @@
     font-size: 9.5px; font-weight: 800; letter-spacing: 0.6px; padding: 3px 9px; border-radius: 6px; box-shadow: 0 4px 12px -3px var(--gold); }
   .c-top { display: flex; gap: 13px; align-items: center; }
   .c-icon { width: 52px; height: 52px; border-radius: 15px; flex: none; display: grid; place-items: center;
-    font-family: "Space Grotesk"; font-weight: 700; font-size: 21px; color: #fff; letter-spacing: -0.5px; }
+    font-family: "Space Grotesk"; font-weight: 700; font-size: 21px; color: #fff; letter-spacing: -0.5px; position: relative; overflow: hidden; }
+  .c-icon img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
   .c-meta { min-width: 0; flex: 1; }
   .c-name { font-family: "Space Grotesk"; font-weight: 600; font-size: 16.5px; display: flex; align-items: center; gap: 6px; }
   .c-name .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -185,6 +194,16 @@
   .tier .tgo { margin-left: auto; color: var(--muted); font-size: 20px; }
   .secure-note { font-size: 11.5px; color: var(--muted); text-align: center; margin-top: 6px; display: flex; align-items: center; gap: 6px; justify-content: center; }
 
+  /* toasts */
+  .toasts { position: fixed; bottom: 22px; right: 22px; display: flex; flex-direction: column; gap: 10px; z-index: 100; pointer-events: none; }
+  .toast { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 12px;
+    padding: 12px 16px; font-size: 13.5px; font-weight: 500; color: var(--text); max-width: 340px;
+    box-shadow: 0 14px 38px -14px rgba(0,0,0,0.55); animation: toastIn 0.22s ease; }
+  .toast.success { border-left-color: var(--green); }
+  .toast.error { border-left-color: #ef4444; }
+  .toast.out { opacity: 0; transform: translateY(8px); transition: 0.28s; }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(10px); } }
+
   @media (max-width: 880px) {
     .app { grid-template-columns: 1fr; }
     .sidebar { position: static; height: auto; flex-direction: row; align-items: center; flex-wrap: wrap; border-right: none; border-bottom: 1px solid var(--line); padding: 14px 16px; gap: 12px; }
@@ -246,7 +265,7 @@
     <div class="grid" id="grid"></div>
 
     <footer>
-      Community-maintained directory · Not affiliated with Discord. · <a href="/admin.html">Admin</a><br>
+      Community-maintained directory · Not affiliated with Discord.<span id="adminLink"> · <a href="/admin.html">Admin</a></span><br>
       Invite links lead to third-party communities — join at your own discretion.
     </footer>
   </main>
@@ -257,15 +276,40 @@
   <div class="modal">
     <h2 id="modalTitle">Add your server</h2>
     <p class="sub" id="modalSub">Share a public community.</p>
-    <div class="field"><label>Server name</label><input id="f-name" maxlength="40" placeholder="e.g. Lo-Fi Lounge" /></div>
+    <div class="field"><label>Server name</label><input id="f-name" maxlength="60" placeholder="e.g. Lo-Fi Lounge" /></div>
     <div class="field"><label>Discord invite</label><input id="f-invite" placeholder="discord.gg/yourcode" /></div>
-    <div class="field"><label>Description</label><textarea id="f-desc" maxlength="140" placeholder="What's your community about?"></textarea></div>
+    <div class="field"><label>Description</label><textarea id="f-desc" maxlength="200" placeholder="What's your community about?"></textarea></div>
     <div class="field"><label>Category</label><select id="f-cat"></select></div>
     <div class="field"><label>Tags (comma separated)</label><input id="f-tags" placeholder="music, chill, study" /></div>
     <div class="modal-actions">
       <button class="btn btn-danger" id="deleteBtn" style="display:none;flex:0 0 auto">Delete</button>
       <button class="btn" id="cancelBtn">Cancel</button>
       <button class="btn btn-accent" id="saveBtn">Add server</button>
+    </div>
+  </div>
+</div>
+
+<!-- Report modal -->
+<div class="overlay" id="reportOverlay">
+  <div class="modal" style="max-width:400px">
+    <h2>🚩 Report server</h2>
+    <p class="sub">Flag <b id="reportName">this server</b> for the moderators — e.g. scam, spam, or a broken invite.</p>
+    <div class="field"><label>Reason (optional)</label><textarea id="reportReason" maxlength="200" placeholder="What's wrong with this listing?"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn" id="reportCancel">Cancel</button>
+      <button class="btn btn-accent" id="reportSend">Send report</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm dialog -->
+<div class="overlay" id="confirmOverlay">
+  <div class="modal" style="max-width:380px">
+    <h2 id="confirmTitle">Are you sure?</h2>
+    <p class="sub" id="confirmMsg" style="margin-bottom:0"></p>
+    <div class="modal-actions">
+      <button class="btn" id="confirmNo">Cancel</button>
+      <button class="btn btn-accent" id="confirmYes">Confirm</button>
     </div>
   </div>
 </div>
@@ -329,6 +373,31 @@ function applyTheme(t){ document.documentElement.setAttribute("data-theme", t); 
 applyTheme(localStorage.getItem("dd_theme") || "dark");
 $("#themeToggle").onclick = () => applyTheme(document.documentElement.getAttribute("data-theme")==="light"?"dark":"light");
 
+/* Toasts + in-app confirm (replaces browser alert/confirm) */
+const toasts = document.createElement("div"); toasts.className = "toasts"; document.body.appendChild(toasts);
+function toast(msg, type){
+  const el = document.createElement("div");
+  el.className = "toast" + (type ? " " + type : "");
+  el.textContent = msg;
+  toasts.appendChild(el);
+  setTimeout(()=>{ el.classList.add("out"); setTimeout(()=>el.remove(), 320); }, 3800);
+}
+const confirmOverlay = $("#confirmOverlay");
+let confirmResolve = null;
+function askConfirm(message, { title = "Are you sure?", yes = "Confirm", danger = false } = {}){
+  $("#confirmTitle").textContent = title;
+  $("#confirmMsg").textContent = message;
+  const yesBtn = $("#confirmYes");
+  yesBtn.textContent = yes;
+  yesBtn.className = "btn " + (danger ? "btn-danger" : "btn-accent");
+  confirmOverlay.classList.add("open");
+  return new Promise((resolve)=>{ confirmResolve = resolve; });
+}
+function closeConfirm(v){ confirmOverlay.classList.remove("open"); if(confirmResolve){ confirmResolve(v); confirmResolve = null; } }
+$("#confirmYes").onclick = ()=>closeConfirm(true);
+$("#confirmNo").onclick = ()=>closeConfirm(false);
+confirmOverlay.addEventListener("click", e=>{ if(e.target===confirmOverlay) closeConfirm(false); });
+
 /* Helpers */
 function allServers(){ return API_MODE ? [...remoteServers, ...SEED] : [...userServers, ...SEED]; }
 function meta(s){
@@ -350,6 +419,7 @@ function inviteUrl(raw){
 function verifiedSvg(){ return `<svg class="verified" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3Zm-1.2 13.4-3.2-3.2 1.4-1.4 1.8 1.8 4-4 1.4 1.4-5.4 5.4Z"/></svg>`; }
 function starSvg(f){ return f ? `<svg viewBox="0 0 24 24" fill="currentColor"><path d="m12 17.3-6.2 3.7 1.6-7L2 9.2l7.1-.6L12 2l2.9 6.6 7.1.6-5.4 4.8 1.6 7z"/></svg>` : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 17.3-6.2 3.7 1.6-7L2 9.2l7.1-.6L12 2l2.9 6.6 7.1.6-5.4 4.8 1.6 7z"/></svg>`; }
 function gearSvg(){ return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1A2 2 0 1 1 7 3.3l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V2a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1Z"/></svg>`; }
+function flagSvg(){ return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21V4"/><path d="M4 4h12l-2 4 2 4H4"/></svg>`; }
 function countdown(ms){ const h=Math.floor(ms/3600000), m=Math.floor(ms/60000)%60, s=Math.floor(ms/1000)%60; if(h>0) return `${h}h ${m}m`; if(m>0) return `${m}m ${s}s`; return `${s}s`; }
 
 function toggleFav(id){ favs.has(id)?favs.delete(id):favs.add(id); localStorage.setItem("dd_favs", JSON.stringify([...favs])); render(); }
@@ -361,13 +431,15 @@ async function bump(id){
       const res = await fetch(`/api/servers/${numId(id)}/bump`, { method:"POST" });
       if (!res.ok){ const j = await res.json().catch(()=>({})); throw new Error(j.error || "Couldn't bump right now."); }
       await loadRemote();
-    } catch(e){ alert(e.message); }
+      toast("Bumped to the top! 🔥", "success");
+    } catch(e){ toast(e.message, "error"); }
     render(); return;
   }
   const base = allServers().find(s=>s.id===id) || {};
   const prev = (bumpsLocal[id]?.bumps) ?? base.bumps ?? 0;
   bumpsLocal[id] = { bumpedAt: Date.now(), bumps: prev + 1 };
   localStorage.setItem("dd_bumps", JSON.stringify(bumpsLocal));
+  toast("Bumped to the top! 🔥", "success");
   render();
 }
 
@@ -411,16 +483,18 @@ function render(){
     const onCd = ends > now;
     const isFav = favs.has(s.id);
     const feat = isFeatured(s);
-    const owned = !!owners[s.id] || (currentUser && s.ownerId && s.ownerId === currentUser.id);
+    const owned = String(s.id).startsWith("local:") || !!owners[s.id] || (currentUser && s.ownerId && s.ownerId === currentUser.id);
     const canFeature = API_MODE && PAYMENTS && !String(s.id).startsWith("seed:");
+    const canReport = API_MODE && !String(s.id).startsWith("seed:") && !owned;
     return `<div class="card ${feat?'featured':''}">
       ${feat?'<span class="ribbon">★ FEATURED</span>':(s.user?'<span class="badge-you">YOUR SERVER</span>':'')}
       <div class="top-btns">
         ${owned?`<button class="mini-btn" data-manage="${esc(s.id)}" title="Manage">${gearSvg()}</button>`:''}
+        ${canReport?`<button class="mini-btn" data-report="${esc(s.id)}" title="Report this listing">${flagSvg()}</button>`:''}
         <button class="mini-btn fav ${isFav?'on':''}" data-fav="${esc(s.id)}" title="Favorite">${starSvg(isFav)}</button>
       </div>
       <div class="c-top">
-        <div class="c-icon" style="background:linear-gradient(135deg, ${c}, ${c}bb)">${initials(s.name)}</div>
+        <div class="c-icon" style="background:linear-gradient(135deg, ${c}, ${c}bb)">${initials(s.name)}${s.icon?`<img src="${esc(s.icon)}" alt="" loading="lazy" onerror="this.remove()">`:""}</div>
         <div class="c-meta">
           <div class="c-name"><span class="nm">${esc(s.name)}</span>${s.verified?verifiedSvg():""}</div>
           <div class="c-cat"><span class="online"><span class="pulse"></span>${fmt(s.online)} online</span> · ${esc(CAT_ICON[s.cat]||"💬")} ${esc(s.cat)}</div>
@@ -443,6 +517,7 @@ function render(){
   grid.querySelectorAll("[data-bump]").forEach(b=> b.onclick=()=>{ if(!b.disabled) bump(b.dataset.bump); });
   grid.querySelectorAll("[data-feature]").forEach(b=> b.onclick=()=>openPremium(b.dataset.feature));
   grid.querySelectorAll("[data-manage]").forEach(b=> b.onclick=()=>openManage(b.dataset.manage));
+  grid.querySelectorAll("[data-report]").forEach(b=> b.onclick=()=>openReport(b.dataset.report));
 }
 
 /* Nav */
@@ -483,8 +558,9 @@ $("#sort").addEventListener("change", render);
 /* Add / Edit modal */
 const overlay = $("#overlay");
 $("#f-cat").innerHTML = CATEGORIES.map(c=>`<option>${c}</option>`).join("");
-function promptLogin(msg){
-  if (confirm((msg || "You need to log in with Discord to do that.") + "\n\nLog in now?")) window.location.href = "/api/auth/login";
+async function promptLogin(msg){
+  const ok = await askConfirm(msg || "You need to log in with Discord to do that.", { title: "Log in required", yes: "Log in with Discord" });
+  if (ok) window.location.href = "/api/auth/login";
 }
 function renderAuth(){
   const el = $("#authArea");
@@ -514,8 +590,10 @@ function openAdd(){
   overlay.classList.add("open");
 }
 function openManage(id){
-  const s = remoteServers.find(x=>x.id===id); if(!s) return;
-  editId = numId(id);
+  const isLocal = String(id).startsWith("local:");
+  const s = isLocal ? userServers.find(x=>x.id===id) : remoteServers.find(x=>x.id===id);
+  if(!s) return;
+  editId = id; // full id ("api:N" or "local:...")
   $("#modalTitle").textContent = "Manage your server";
   $("#modalSub").textContent = "Edit the details below, or delete your listing.";
   $("#saveBtn").textContent = "Save changes";
@@ -534,44 +612,82 @@ $("#saveBtn").onclick = async ()=>{
   const colors=["#7c5cff","#5865f2","#3ba55d","#f472b6","#fa4454","#ea7600","#f7931a","#1d4ed8"];
   const body = { name, desc:$("#f-desc").value.trim(), cat:$("#f-cat").value, tags:$("#f-tags").value.split(",").map(t=>t.trim()).filter(Boolean) };
 
-  if(editId !== null && API_MODE){
-    try {
-      const res = await fetch(`/api/servers/${editId}`, { method:"PATCH", headers:{ "Content-Type":"application/json", "x-owner-token": owners["api:"+editId]||"" }, body: JSON.stringify(body) });
-      if(!res.ok){ let m="Couldn't save."; try{m=(await res.json()).error||m;}catch{} throw new Error(m); }
-      await loadRemote();
-    } catch(err){ alert(err.message); return; }
-    overlay.classList.remove("open"); render(); return;
+  if(editId !== null){
+    if(name.length < 2){ toast("Please enter a valid server name.", "error"); return; }
+    if(String(editId).startsWith("local:")){
+      const s = userServers.find(x=>x.id===editId);
+      if(s){ s.name=name; s.desc=body.desc; s.cat=body.cat; s.tags=body.tags; localStorage.setItem("dd_servers", JSON.stringify(userServers)); }
+    } else {
+      try {
+        const res = await fetch(`/api/servers/${numId(editId)}`, { method:"PATCH", headers:{ "Content-Type":"application/json", "x-owner-token": owners[editId]||"" }, body: JSON.stringify(body) });
+        if(!res.ok){ let m="Couldn't save."; try{m=(await res.json()).error||m;}catch{} throw new Error(m); }
+        await loadRemote();
+      } catch(err){ toast(err.message, "error"); return; }
+    }
+    overlay.classList.remove("open"); toast("Changes saved.", "success"); render(); return;
   }
 
-  if(!name || !invite){ alert("Please enter a server name and invite link."); return; }
-  if(inviteUrl(invite)==="#"){ alert("Please enter a valid Discord invite (e.g. discord.gg/yourcode)."); return; }
+  if(!name || !invite){ toast("Please enter a server name and invite link.", "error"); return; }
+  if(inviteUrl(invite)==="#"){ toast("Please enter a valid Discord invite (e.g. discord.gg/yourcode).", "error"); return; }
   body.invite = invite; body.color = colors[Math.floor(Math.random()*colors.length)];
 
   if(API_MODE){
     try{
+      const saveBtn = $("#saveBtn"); saveBtn.disabled = true; saveBtn.textContent = "Checking invite…";
       const res = await fetch("/api/servers",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+      saveBtn.disabled = false; saveBtn.textContent = "Add server";
       if(!res.ok){ let m="Couldn't save that server."; try{m=(await res.json()).error||m;}catch{} throw new Error(m); }
       const data = await res.json();
       if(data.ownerToken){ owners[data.id]=data.ownerToken; localStorage.setItem("dd_owner", JSON.stringify(owners)); }
       await loadRemote();
-    }catch(err){ alert(err.message); return; }
+    }catch(err){ const b=$("#saveBtn"); b.disabled=false; b.textContent="Add server"; toast(err.message, "error"); return; }
   } else {
     body.id="local:"+Date.now(); body.user=true; body.added=Date.now(); body.bumpedAt=Date.now(); body.bumps=0; body.members=0; body.online=0; body.featuredUntil=0;
     userServers.unshift(body); localStorage.setItem("dd_servers", JSON.stringify(userServers));
   }
-  overlay.classList.remove("open"); activeCat="All"; $("#search").value=""; $("#sort").value="bumped"; render();
+  overlay.classList.remove("open"); activeCat="All"; $("#search").value=""; $("#sort").value="bumped";
+  toast("Server added — welcome aboard! 🎉", "success");
+  render();
 };
 
 $("#deleteBtn").onclick = async ()=>{
   if(editId===null) return;
-  if(!confirm("Delete your server listing? This can't be undone.")) return;
+  const ok = await askConfirm("Delete your server listing? This can't be undone.", { title: "Delete listing", yes: "Delete", danger: true });
+  if(!ok) return;
+  if(String(editId).startsWith("local:")){
+    userServers = userServers.filter(x=>x.id!==editId);
+    localStorage.setItem("dd_servers", JSON.stringify(userServers));
+  } else {
+    try{
+      const res = await fetch(`/api/servers/${numId(editId)}`, { method:"DELETE", headers:{ "x-owner-token": owners[editId]||"" } });
+      if(!res.ok){ let m="Couldn't delete."; try{m=(await res.json()).error||m;}catch{} throw new Error(m); }
+      delete owners[editId]; localStorage.setItem("dd_owner", JSON.stringify(owners));
+      await loadRemote();
+    }catch(err){ toast(err.message, "error"); return; }
+  }
+  overlay.classList.remove("open"); toast("Listing deleted.", "success"); render();
+};
+
+/* Report a listing */
+const reportOverlay = $("#reportOverlay");
+let reportServerId = null;
+function openReport(id){
+  reportServerId = numId(id);
+  const s = remoteServers.find(x=>x.id===id);
+  $("#reportName").textContent = s ? s.name : "this server";
+  $("#reportReason").value = "";
+  reportOverlay.classList.add("open");
+}
+$("#reportCancel").onclick = ()=> reportOverlay.classList.remove("open");
+reportOverlay.addEventListener("click", e=>{ if(e.target===reportOverlay) reportOverlay.classList.remove("open"); });
+$("#reportSend").onclick = async ()=>{
+  if(reportServerId===null) return;
   try{
-    const res = await fetch(`/api/servers/${editId}`, { method:"DELETE", headers:{ "x-owner-token": owners["api:"+editId]||"" } });
-    if(!res.ok){ let m="Couldn't delete."; try{m=(await res.json()).error||m;}catch{} throw new Error(m); }
-    delete owners["api:"+editId]; localStorage.setItem("dd_owner", JSON.stringify(owners));
-    await loadRemote();
-  }catch(err){ alert(err.message); return; }
-  overlay.classList.remove("open"); render();
+    const res = await fetch(`/api/servers/${reportServerId}/report`, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ reason: $("#reportReason").value.trim() }) });
+    if(!res.ok){ let m="Couldn't send the report."; try{m=(await res.json()).error||m;}catch{} throw new Error(m); }
+    reportOverlay.classList.remove("open");
+    toast("Thanks — the moderators will take a look.", "success");
+  }catch(err){ toast(err.message, "error"); }
 };
 
 /* Premium / checkout */
@@ -597,12 +713,16 @@ async function startCheckout(tier){
     const j = await res.json();
     if(!res.ok || !j.url) throw new Error(j.error || "Couldn't start checkout.");
     window.location.href = j.url; // redirect to Stripe Checkout
-  }catch(err){ alert(err.message); }
+  }catch(err){ toast(err.message, "error"); }
 }
 
 /* API / mode */
 async function loadRemote(){ const res=await fetch("/api/servers"); if(!res.ok) throw new Error("no api"); remoteServers=await res.json(); }
-function setMode(live){ API_MODE=live; const pill=$("#modePill"); if(live){ pill.classList.add("live"); $("#modeText").textContent="Live"; } else { $("#modeText").textContent="Offline"; } }
+function setMode(live){
+  API_MODE=live; const pill=$("#modePill");
+  if(live){ pill.classList.add("live"); $("#modeText").textContent="Live"; }
+  else { $("#modeText").textContent="Offline"; $("#adminLink").style.display="none"; }
+}
 
 /* Auto-refresh: in Live mode, quietly pull everyone's latest data every 20s so
    new servers/bumps from other people appear without a manual reload. */
@@ -631,6 +751,9 @@ async function checkHealth(){
   return false;
 }
 (async function init(){
+  // Opened straight from disk (double-clicked index.html) — there's no server
+  // to reach, so skip the health-check retries and go straight to offline mode.
+  if (location.protocol === "file:") { setMode(false); renderAuth(); render(); return; }
   $("#modeText").textContent = "Connecting…";
   const live = await checkHealth();
   if(live){
@@ -643,7 +766,7 @@ async function checkHealth(){
   renderAuth();
   render();
   if (new URLSearchParams(location.search).get("login") === "failed") {
-    alert("Discord login didn't complete. Please try again.");
+    toast("Discord login didn't complete. Please try again.", "error");
     history.replaceState({}, "", location.pathname);
   }
 })();

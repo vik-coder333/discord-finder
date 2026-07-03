@@ -70,6 +70,12 @@ db.exec(`
     avatar   TEXT,
     created  INTEGER
   );
+  CREATE TABLE IF NOT EXISTS reports (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    serverId INTEGER,
+    reason   TEXT DEFAULT '',
+    created  INTEGER
+  );
 `);
 
 // Migrations for databases created by earlier versions.
@@ -80,6 +86,9 @@ addCol("bumps", "INTEGER DEFAULT 0");
 addCol("featuredUntil", "INTEGER DEFAULT 0");
 addCol("ownerToken", "TEXT");
 addCol("ownerUserId", "TEXT");
+addCol("icon", "TEXT DEFAULT ''");
+addCol("guildId", "TEXT DEFAULT ''");
+addCol("countsUpdated", "INTEGER DEFAULT 0");
 
 const CATEGORIES = ["Gaming","Music","Art & Design","Tech","Anime","Study","Crypto","Community","Sports"];
 
@@ -95,6 +104,7 @@ function rowToServer(r) {
     members: r.members,
     online: r.online,
     added: r.created,
+    icon: r.icon || "",
     bumpedAt: r.bumpedAt || r.created,
     bumps: r.bumps || 0,
     featuredUntil: r.featuredUntil || 0,
@@ -112,12 +122,21 @@ function parseCookies(req) {
   });
   return out;
 }
+const SESSION_MAX_AGE = 30 * DAY; // matches the cookie's Max-Age
 function currentUser(req) {
   const t = parseCookies(req).dd_session;
   if (!t) return null;
   const s = db.prepare("SELECT * FROM sessions WHERE token = ?").get(t);
-  return s ? { id: s.userId, username: s.username, avatar: s.avatar } : null;
+  if (!s) return null;
+  if (Date.now() - s.created > SESSION_MAX_AGE) {
+    db.prepare("DELETE FROM sessions WHERE token = ?").run(t);
+    return null;
+  }
+  return { id: s.userId, username: s.username, avatar: s.avatar };
 }
+setInterval(() => {
+  db.prepare("DELETE FROM sessions WHERE created < ?").run(Date.now() - SESSION_MAX_AGE);
+}, 60 * 60 * 1000);
 function isSecure(req) { return req.protocol === "https" || req.headers["x-forwarded-proto"] === "https"; }
 function setCookie(res, req, name, value, maxAge) {
   res.append("Set-Cookie", `${name}=${value}; HttpOnly; Path=/; Max-Age=${maxAge}; SameSite=Lax${isSecure(req) ? "; Secure" : ""}`);
@@ -146,6 +165,57 @@ function sanitizeFields(b) {
   if (b.color !== undefined) out.color = /^#[0-9a-f]{3,8}$/i.test(b.color || "") ? b.color : "#7c5cff";
   return out;
 }
+
+/* ---------------- Discord invite lookup ---------------- */
+// Discord's invite endpoint is public — no bot or API key needed. Returns the
+// server's real icon and live member counts, null when Discord says the invite
+// doesn't exist, or undefined when Discord couldn't be reached (timeout/outage).
+async function lookupInvite(inviteUrl) {
+  const code = String(inviteUrl).replace(/^https:\/\/discord\.gg\//, "");
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 6000);
+    const res = await fetch(`https://discord.com/api/v10/invites/${encodeURIComponent(code)}?with_counts=true`, { signal: ctrl.signal });
+    clearTimeout(t);
+    if (res.status === 404) return null;
+    if (!res.ok) return undefined;
+    const j = await res.json();
+    if (!j.guild?.id) return undefined;
+    return {
+      guildId: j.guild.id,
+      icon: j.guild.icon ? `https://cdn.discordapp.com/icons/${j.guild.id}/${j.guild.icon}.png?size=128` : "",
+      members: j.approximate_member_count || 0,
+      online: j.approximate_presence_count || 0,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+// Hourly sweep: refresh icons/counts for the stalest listings (max 20 per run,
+// spaced out to stay well under Discord's rate limits).
+const COUNTS_MAX_AGE = 6 * 60 * 60 * 1000;
+async function refreshCounts() {
+  const rows = db
+    .prepare("SELECT id, invite FROM servers WHERE COALESCE(countsUpdated, 0) < ? ORDER BY COALESCE(countsUpdated, 0) ASC LIMIT 20")
+    .all(Date.now() - COUNTS_MAX_AGE);
+  for (const r of rows) {
+    const live = await lookupInvite(r.invite);
+    if (live) {
+      db.prepare("UPDATE servers SET members=?, online=?, icon=?, guildId=?, countsUpdated=? WHERE id=?")
+        .run(live.members, live.online, live.icon, live.guildId, Date.now(), r.id);
+    } else if (live === null) {
+      // Invite no longer resolves — keep the listing (owners can fix it) but
+      // stamp it so we don't hammer Discord retrying every sweep.
+      db.prepare("UPDATE servers SET countsUpdated=? WHERE id=?").run(Date.now(), r.id);
+    } else {
+      break; // Discord unreachable — try again next sweep
+    }
+    await new Promise((wait) => setTimeout(wait, 1500));
+  }
+}
+setInterval(refreshCounts, 60 * 60 * 1000);
+setTimeout(refreshCounts, 10 * 1000); // backfill existing rows shortly after boot
 
 // Grant featured time. Idempotent per Stripe session.
 function grantFeature(serverId, tierId, sessionId) {
@@ -284,7 +354,7 @@ app.get("/api/servers", (_req, res) => {
   res.json(rows.map(rowToServer));
 });
 
-app.post("/api/servers", writeLimiter, (req, res) => {
+app.post("/api/servers", writeLimiter, async (req, res) => {
   const user = currentUser(req);
   if (discordEnabled && !user) return res.status(401).json({ error: "Please log in with Discord to add a server." });
   const b = req.body || {};
@@ -295,15 +365,25 @@ app.post("/api/servers", writeLimiter, (req, res) => {
   if (db.prepare("SELECT 1 FROM servers WHERE invite = ?").get(invite))
     return res.status(409).json({ error: "That server is already listed." });
 
+  // Verify the invite against Discord and grab the real icon + live counts.
+  // If Discord is unreachable we accept the listing anyway rather than block adds.
+  const live = await lookupInvite(invite);
+  if (live === null)
+    return res.status(400).json({ error: "That invite looks invalid or expired — double-check it on Discord." });
+
   const now = Date.now();
   const ownerToken = crypto.randomBytes(24).toString("hex");
   try {
     const info = db
       .prepare(
-        `INSERT INTO servers (name, invite, desc, cat, tags, color, members, online, created, bumpedAt, bumps, featuredUntil, ownerToken, ownerUserId)
-         VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, 0, 0, ?, ?)`
+        `INSERT INTO servers (name, invite, desc, cat, tags, color, members, online, created, bumpedAt, bumps, featuredUntil, ownerToken, ownerUserId, icon, guildId, countsUpdated)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?)`
       )
-      .run(f.name, invite, f.desc || "", f.cat || "Community", JSON.stringify(f.tags || []), f.color || "#7c5cff", now, now, ownerToken, user ? user.id : null);
+      .run(
+        f.name, invite, f.desc || "", f.cat || "Community", JSON.stringify(f.tags || []), f.color || "#7c5cff",
+        live ? live.members : 0, live ? live.online : 0, now, now, ownerToken, user ? user.id : null,
+        live ? live.icon : "", live ? live.guildId : "", live ? now : 0
+      );
     const row = db.prepare("SELECT * FROM servers WHERE id = ?").get(info.lastInsertRowid);
     // ownerToken is returned ONCE here so the adder can manage their listing.
     res.status(201).json({ ...rowToServer(row), ownerToken });
@@ -345,7 +425,7 @@ function authLevel(req, row) {
   return null;
 }
 
-app.patch("/api/servers/:id", writeLimiter, (req, res) => {
+app.patch("/api/servers/:id", writeLimiter, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const row = db.prepare("SELECT * FROM servers WHERE id = ?").get(id);
   if (!row) return res.status(404).json({ error: "Server not found." });
@@ -357,6 +437,13 @@ app.patch("/api/servers/:id", writeLimiter, (req, res) => {
   if (req.body?.invite) {
     const v = safeInvite(req.body.invite);
     if (!v) return res.status(400).json({ error: "Invalid Discord invite." });
+    if (v !== row.invite) {
+      const live = await lookupInvite(v);
+      if (live === null) return res.status(400).json({ error: "That invite looks invalid or expired — double-check it on Discord." });
+      if (live)
+        db.prepare("UPDATE servers SET members=?, online=?, icon=?, guildId=?, countsUpdated=? WHERE id=?")
+          .run(live.members, live.online, live.icon, live.guildId, Date.now(), id);
+    }
     invite = v;
   }
   db.prepare("UPDATE servers SET name=?, desc=?, cat=?, tags=?, color=?, invite=? WHERE id=?").run(
@@ -371,12 +458,23 @@ app.patch("/api/servers/:id", writeLimiter, (req, res) => {
   res.json(rowToServer(db.prepare("SELECT * FROM servers WHERE id = ?").get(id)));
 });
 
-app.delete("/api/servers/:id", (req, res) => {
+app.delete("/api/servers/:id", writeLimiter, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const row = db.prepare("SELECT * FROM servers WHERE id = ?").get(id);
   if (!row) return res.status(404).json({ error: "Server not found." });
   if (!authLevel(req, row)) return res.status(403).json({ error: "You don't have permission to delete this server." });
   db.prepare("DELETE FROM servers WHERE id = ?").run(id);
+  db.prepare("DELETE FROM reports WHERE serverId = ?").run(id);
+  res.json({ ok: true });
+});
+
+// Visitors can flag a listing for moderator review (see /api/admin/reports).
+app.post("/api/servers/:id/report", writeLimiter, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: "Invalid server." });
+  if (!db.prepare("SELECT 1 FROM servers WHERE id = ?").get(id)) return res.status(404).json({ error: "Server not found." });
+  const reason = String(req.body?.reason || "").trim().slice(0, 200);
+  db.prepare("INSERT INTO reports (serverId, reason, created) VALUES (?,?,?)").run(id, reason, Date.now());
   res.json({ ok: true });
 });
 
@@ -440,6 +538,25 @@ function requireAdmin(req, res, next) {
 }
 // Lightweight check so the admin page can validate the key cleanly.
 app.get("/api/admin/check", requireAdmin, (_req, res) => res.json({ ok: true }));
+
+// Reports, grouped per server, newest first — shown in the admin panel.
+app.get("/api/admin/reports", requireAdmin, (_req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT r.serverId, COUNT(*) AS count, MAX(r.created) AS latest, s.name, s.invite
+       FROM reports r JOIN servers s ON s.id = r.serverId
+       GROUP BY r.serverId ORDER BY latest DESC`
+    )
+    .all();
+  const reasonsStmt = db.prepare("SELECT reason FROM reports WHERE serverId = ? AND reason != '' ORDER BY created DESC LIMIT 5");
+  res.json(rows.map((r) => ({ ...r, reasons: reasonsStmt.all(r.serverId).map((x) => x.reason) })));
+});
+
+// Dismiss all reports against one server (listing was reviewed and is fine).
+app.delete("/api/admin/reports/:serverId", requireAdmin, (req, res) => {
+  db.prepare("DELETE FROM reports WHERE serverId = ?").run(parseInt(req.params.serverId, 10));
+  res.json({ ok: true });
+});
 
 // Comp a server as featured without payment (moderation / promos).
 app.post("/api/admin/servers/:id/feature", requireAdmin, (req, res) => {

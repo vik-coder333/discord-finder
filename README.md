@@ -28,12 +28,20 @@ webhooks — it can't be faked from the browser. **See `server/SETUP-PAYMENTS.md
 to turn it on** (you'll need a free Stripe account; it runs in safe test mode
 until you add live keys).
 
+## ✅ Real Discord data (hosted mode)
+When someone adds a server, the backend checks the invite against **Discord's
+public API** — dead or made-up invites are rejected on the spot. Valid listings
+automatically get the server's **real icon** and **live member/online counts**,
+refreshed in the background every few hours. No bot or API key needed.
+
 ## 👤 Owner controls & 🛡️ admin
 - When you add a server (hosted mode), you become its **owner** and can **edit or
   delete** it later — secured by a private token, so nobody else can touch your
-  listing.
+  listing. (In standalone mode you can manage your local listings the same way.)
+- Visitors can **🚩 report** a scam/spam listing; reports show up in the admin
+  panel for review.
 - An **admin panel** at `/admin.html` lets you moderate everything (feature or
-  remove any server). Protected by your `ADMIN_KEY`.
+  remove any server, review and dismiss reports). Protected by your `ADMIN_KEY`.
 
 There are **two ways to run it**, sharing the exact same interface:
 
@@ -102,9 +110,26 @@ blueprint:
 3. In the dashboard, add your secrets: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
    `ADMIN_KEY`.
 
-> Netlify is **not** suitable for the payment/database version (no always-on
-> server or persistent disk). Use Render/Railway/Fly for the full app, or Netlify
-> only for the static offline-mode `index.html`.
+### Using a custom domain on Netlify (frontend) + Render (API)
+If your domain (e.g. discordserverfinder.com) points at **Netlify**, Netlify only
+serves the static files — it has no API, so the site would sit in "Offline" mode
+forever. The included **`_redirects`** file fixes this: it proxies every
+`/api/*` request from Netlify to the Render backend
+(`https://discoverdisc.onrender.com`), so the browser sees one same-origin site
+and switches to **Live** mode.
+
+- The `_redirects` file must be included in what you deploy to Netlify
+  (it already sits next to `index.html`, so redeploying this folder is enough).
+- If your Render service has a different URL, edit the URL inside `_redirects`.
+- Point your **Stripe webhook** directly at the Render URL
+  (`https://discoverdisc.onrender.com/api/webhook`), not the Netlify domain.
+- Simpler alternative: skip Netlify entirely and attach the custom domain to the
+  Render service itself (Render dashboard → Settings → Custom Domains) — then
+  one host serves everything and no proxy is needed.
+
+> Note: on Render's **free** plan the server sleeps after ~15 min of inactivity.
+> The first visitor wakes it — the site shows "Waking up…" for ~20-50 s, then
+> goes Live. That's normal; upgrading the Render plan removes the sleep.
 
 ## Project layout
 ```
@@ -113,6 +138,7 @@ discord-finder/
 ├─ premium-success.html    ← Stripe returns here after payment
 ├─ admin.html              ← moderation panel
 ├─ render.yaml             ← one-click Render deploy blueprint
+├─ _redirects              ← Netlify → Render API proxy (for custom-domain setups)
 ├─ README.md / SECURITY.md
 └─ server/
    ├─ server.js            ← Express API + Stripe + serves the frontend
@@ -124,13 +150,15 @@ discord-finder/
 
 ## API (hosted mode)
 - `GET  /api/health` · `GET /api/config`
-- `GET  /api/servers` · `POST /api/servers` (returns a one-time `ownerToken`)
+- `GET  /api/servers` · `POST /api/servers` (verifies the invite with Discord; returns a one-time `ownerToken`)
 - `POST /api/servers/:id/bump` — free bump, 2-hour cooldown
+- `POST /api/servers/:id/report` — flag a listing for moderator review
 - `PATCH/DELETE /api/servers/:id` — owner (or admin) only
 - `POST /api/checkout` → Stripe Checkout · `GET /api/checkout/confirm` · `POST /api/webhook`
-- `POST /api/admin/servers/:id/feature` — admin only
+- `POST /api/admin/servers/:id/feature` · `GET /api/admin/reports` · `DELETE /api/admin/reports/:serverId` — admin only
 
 ## Notes
 - Not affiliated with Discord. Invite links lead to third-party communities.
 - The 20 built-in "seed" servers are well-known public communities shown as examples;
-  member/online counts on those are illustrative.
+  member/online counts on those are illustrative. Servers people add get their
+  real icon and live counts from Discord.

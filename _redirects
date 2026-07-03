@@ -1,0 +1,4 @@
+# Netlify proxy: the frontend is static on Netlify, but the API + database run
+# on Render. This forwards every /api request to the Render service so the
+# browser sees one same-origin site and the app switches to Live mode.
+/api/*  https://discoverdisc.onrender.com/api/:splat  200!
