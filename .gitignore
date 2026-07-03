@@ -18,3 +18,7 @@ server/node_modules/
 # OS / editor junk
 .DS_Store
 Thumbs.db
+
+# Local staging copy for Netlify drag-and-drop deploys (regenerated from the
+# real files; never commit)
+netlify-drop/
